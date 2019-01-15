@@ -1,182 +1,146 @@
-import numpy 
-import pandas
-import csv as csv
-from sklearn.model_selection import cross_val_score
-from sklearn.model_selection import KFold
+import numpy as np 
+import pandas as pd
+import statsmodels.api as sm
+from scipy.stats.mstats import zscore
+from scipy import stats
 from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import cross_val_score
 from sklearn.pipeline import Pipeline
+
+from sklearn import datasets, linear_model
+from sklearn.metrics import mean_squared_error, r2_score
+import matplotlib.pyplot as plt
+import xgboost as xgb
+
 from sklearn.model_selection import train_test_split
 
+# Import function to automatically create polynomial features! 
+from sklearn.preprocessing import PolynomialFeatures
+# Import Linear Regression and a regularized regression function
+from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LassoCV
+# Finally, import function to make a machine learning pipeline
+from sklearn.pipeline import make_pipeline
+
+from sklearn.linear_model import ElasticNet
+
 from keras.models import Sequential
-from keras.layers import Dense
+from keras.layers import Dense, Dropout
+from keras.layers import Reshape
 from keras.wrappers.scikit_learn import KerasRegressor
 
 
-train=[]
-train_formation=[]
-train_bandgap=[]
-test=[]   
-test_formation=[]
-test_bandgap=[]      #Array Definition
+train = pd.read_csv('D:/New folder/Kagg;e/TestPro/input/train.csv')
+testf = pd.read_csv('D:/New folder/Kagg;e/TestPro/input/test.csv')
 
-path1 =  r'..\input\train.csv'     #Address Definition
-path2 =  r'..\input\test.csv'
+xT = train.iloc[:,1:12]
+yT = train.iloc[:,12]
 
-with open(path1, 'r') as f1:    #Open File as read by 'r'
-    reader = csv.reader(f1)     
-    next(reader, None)          #Skip header because file header is not needed
-    for row in reader:          #fill array by file info by for loop
-        train.append(row)
-    train = numpy.array(train)       	
-	
-with open(path2, 'r') as f2:
-    reader2 = csv.reader(f2)
-    next(reader2, None)  
-    for row2 in  reader2:
-        test.append(row2)
-    test = numpy.array(test)
- 
-train = numpy.delete(train,[0],1)  #delete first column
- 
+print (sm.OLS(zscore(yT), zscore(xT)).fit().summary())
 
-#predicting formation_energy_ev_natom
+#only consider atomic percentages since the standard coefficient is high for them compared to the rest of the features.
+x = train.iloc[:,2:5]
+y = train.iloc[:,12]
 
+test = testf.iloc[:,3:6]
 
-train_formation = train 
-train_formation = numpy.delete(train,[13],1)  #delete last column
-
-test_formation = test
-test_formation = numpy.delete(test,[0],1)  #delete first column 
-
-X = train_formation[:,0:11]
-Y = train_formation[:,11]
-
-
-x_train, x_valid, y_train, y_valid = train_test_split(X, Y, test_size=0.5, random_state=101)
-
-# define base model
+print (y)
 def baseline_model():
-	# create model
-	model = Sequential()
-	model.add(Dense(11, input_dim=11, kernel_initializer='normal', activation='relu'))
-	model.add(Dense(1, kernel_initializer='normal'))
-	# Compile model
-	model.compile(loss='mean_squared_error', optimizer='adam')
-	return model
-	
-#train model
-modelR = baseline_model()
-modelR.fit(x_valid, y_train, batch_size = 5, epochs=10)
+	regressor = Sequential()
+	regressor.add(Dense(units = 2048, activation = 'relu', kernel_initializer = 'normal',input_dim = 3))
+	regressor.add(Dropout(0.1))
+	regressor.add(Dense(units = 1024, activation = 'relu', kernel_initializer = 'normal'))
+	regressor.add(Dropout(0.1))
+	regressor.add(Dense(units = 512, activation = 'relu', kernel_initializer = 'normal'))
+	regressor.add(Dropout(0.1))
+	regressor.add(Dense(units = 64, activation = 'relu', kernel_initializer = 'normal'))
+	regressor.add(Dropout(0.1))
+	regressor.add(Dense(units = 1, activation = 'relu', kernel_initializer = 'normal'))
 
-#evaluate
-modelR.evaluate(x_valid, y_valid, batch_size=5)
-	
-#predict
-classes = modelR.predict(test_formation)
-	
-#print output to file
-path3 =  r'..\output\result_keras.csv'
+	#compile ANN
+	regressor.compile(optimizer = 'adam', loss = 'mse', metrics =['accuracy'])
+	return regressor
 
-with open(path3, 'w',  newline='') as f3, open(path2, 'r') as f4: # write output and otherr column from test
-    forest_Csv = csv.writer(f3)
-	#forest_Csv.writerow(["id", "formation_energy", "spacegroup", "number_of_total_atoms", "percent_atom_al", "percent_atom_al", "percent_atom_in", "lattice_vector_1_ang", "lattice_vector_2_ang", "lattice_vector_3_ang", "lattice_angle_alpha_degree", "lattice_angle_beta_degree", "lattice_angle_gamma_degree"])       
-    test_file_object = csv.reader(f4)
-    next(test_file_object, None)
-    i = 0
-    for row in  test_file_object:
-        row.insert(1,classes[i].astype(numpy.float16))
-        forest_Csv.writerow(row)
-        i += 1	
-	
-	
-# fix random seed for reproducibility
-seed = 7
-numpy.random.seed(seed)
-estimator = KerasRegressor(build_fn=baseline_model, nb_epoch=50, batch_size=5, verbose=0)
+x_train, x_valid, y_train, y_valid = train_test_split(x, y, test_size=0.2, random_state=101)
 
-#calculate MSE
-kfold = KFold(n_splits=2, random_state=seed)
-results = cross_val_score(estimator, x_train, y_train, cv=kfold)
-print("Results: %.2f (%.2f) MSE" % (results.mean(), results.std()))
-
-
-
-# evaluate model with standardized dataset : To even the scales of input attribute
-numpy.random.seed(seed)
 estimators = []
 estimators.append(('standardize', StandardScaler()))
-estimators.append(('mlp', KerasRegressor(build_fn=baseline_model, epochs=10, batch_size=100, verbose=1)))
-pipeline = Pipeline(estimators)
-kfold = KFold(n_splits=100, random_state=seed)
-results = cross_val_score(pipeline, x_train, y_train, verbose = 1)
+estimators.append(('mlp', KerasRegressor(build_fn=baseline_model, epochs=200, batch_size=50, verbose=1, validation_split=0.1)))
 
-#train
-pipeline.fit(X, Y)
+model = Pipeline(estimators)
+model.fit(x_train,y_train)
+valid_pred_f = np.array(model.predict(x_valid))
+final_pred_f = np.array(model.predict(test))
 
-#predict
-predicted_formation = pipeline.predict(test_formation)
+RMSE=np.sqrt(np.sum(np.square(valid_pred_f-y_valid)))
+test_score = model.score(x_valid,y_valid)
+results = cross_val_score(model, x_valid, y_valid, verbose = 1)
 
-print("Standardized: %.2f (%.2f) MSE" % (results.mean(), results.std()))
-
-#print output to file
-path3 =  r'..\output\Standardized_Result_Formation.csv'
-
-with open(path3, 'w',  newline='') as f3, open(path2, 'r') as f4: # write output and otherr column from test
-    forest_Csv = csv.writer(f3)
-    #forest_Csv.writerow(["id", "formation_energy", "spacegroup", "number_of_total_atoms", "percent_atom_al", "percent_atom_al", "percent_atom_in", "lattice_vector_1_ang", "lattice_vector_2_ang", "lattice_vector_3_ang", "lattice_angle_alpha_degree", "lattice_angle_beta_degree", "lattice_angle_gamma_degree"])
-    test_file_object = csv.reader(f4)
-    next(test_file_object, None)
-    i = 0
-    for row in  test_file_object:
-        row.insert(1,predicted_formation[i].astype(numpy.float16))
-        forest_Csv.writerow(row)
-        i += 1	
-		
+print("Standardized: %.10f (%.10f) MSE  " % (results.mean(), results.std()))
+	
+print ("RMSE: ",RMSE)
+print ("test score: ",test_score)
+print("Mean squared error: %.10f"
+      % mean_squared_error(y_valid, valid_pred_f))
+# Explained variance score: 1 is perfect prediction
+print('Variance/R^2 score: %.10f' % r2_score(y_valid, valid_pred_f))
 
 
-		
-#predicting bandgap_energy_ev : Done only for standardized data set 
+#bandgap predictionS
 
-train_bandgap = train 
-train_bandgap = numpy.delete(train,[12],1)  #delete formation_energy column
+traing = pd.read_csv('D:/New folder/Kagg;e/TestPro/input/train.csv')
 
+x = traing.iloc[:,2:5]
+y = traing.iloc[:,13]
 
-test_bandgap = test
-test_bandgap = numpy.delete(test,[0],1)  #delete first column 
+test = testf.iloc[:,3:6]
 
-X = train_bandgap[:,0:11]
-Y = train_bandgap[:,11]
+print (y)
+def baseline_model():
+	regressor = Sequential()
+	regressor.add(Dense(units = 2048, activation = 'relu', kernel_initializer = 'normal',input_dim = 3))
+	regressor.add(Dropout(0.1))
+	regressor.add(Dense(units = 1024, activation = 'relu', kernel_initializer = 'normal'))
+	regressor.add(Dropout(0.1))
+	regressor.add(Dense(units = 512, activation = 'relu', kernel_initializer = 'normal'))
+	regressor.add(Dropout(0.1))
+	regressor.add(Dense(units = 64, activation = 'relu', kernel_initializer = 'normal'))
+	regressor.add(Dropout(0.1))
+	regressor.add(Dense(units = 1, activation = 'relu', kernel_initializer = 'normal'))
 
+	#compile ANN
+	regressor.compile(optimizer = 'adam', loss = 'mse', metrics =['accuracy'])
+	return regressor
+	
+x_train, x_valid, y_train, y_valid = train_test_split(x, y, test_size=0.2, random_state=101)
 
-x_train_B, x_valid_B, y_train_B, y_valid_B = train_test_split(X, Y, test_size=0.2, random_state=101)
-
-# evaluate model with standardized dataset : To even the scales of input attribute
-numpy.random.seed(seed)
 estimators = []
 estimators.append(('standardize', StandardScaler()))
-estimators.append(('mlp', KerasRegressor(build_fn=baseline_model, epochs=10, batch_size=100, verbose=1)))
-pipeline = Pipeline(estimators)
-kfold = KFold(n_splits=100, random_state=seed)
-results = cross_val_score(pipeline, x_train_B, y_train_B, verbose = 1)
+estimators.append(('mlp', KerasRegressor(build_fn=baseline_model, epochs=200, batch_size=50, verbose=1, validation_split=0.1)))
 
-#train
-pipeline.fit(X, Y)
+model = Pipeline(estimators)
+model.fit(x_train,y_train)
+#test_pred = np.array(model.validate(x_valid))
+valid_pred_g = np.array(model.predict(x_valid))
+final_pred_g = np.array(model.predict(test))
 
-#predict
-predicted_test = pipeline.predict(test_bandgap)
+RMSE=np.sqrt(np.sum(np.square(valid_pred_g-y_valid)))
+test_score = model.score(x_valid,y_valid)
+results = cross_val_score(model, x_valid, y_valid, verbose = 1)
 
-print("Standardized: %.2f (%.2f) MSE" % (results.mean(), results.std()))
+print("Standardized: %.10f (%.10f) MSE  " % (results.mean(), results.std()))
+	
+print ("RMSE: ",RMSE)
+print ("test score: ",test_score)
 
-#print output to file
-path3 =  r'..\output\Standardized_Result_Bandgap.csv'
+# The mean squared error
+print("Mean squared error: %.10f"
+      % mean_squared_error(y_valid, valid_pred_g))
+# Explained variance score: 1 is perfect prediction
+print('Variance/R^2 score: %.10f' % r2_score(y_valid, valid_pred_g))
 
-with open(path3, 'w',  newline='') as f3, open(path2, 'r') as f4: # write output and otherr column from test
-    forest_Csv = csv.writer(f3)
-    #forest_Csv.writerow(["id", "formation_energy", "spacegroup", "number_of_total_atoms", "percent_atom_al", "percent_atom_al", "percent_atom_in", "lattice_vector_1_ang", "lattice_vector_2_ang", "lattice_vector_3_ang", "lattice_angle_alpha_degree", "lattice_angle_beta_degree", "lattice_angle_gamma_degree"])
-    test_file_object = csv.reader(f4)
-    next(test_file_object, None)
-    i = 0
-    for row in  test_file_object:
-        row.insert(1,predicted_test[i].astype(numpy.float16))
-        forest_Csv.writerow(row)
-        i += 1	
+xgb = pd.DataFrame()
+xgb['id'] = testf['id']
+xgb['formation_energy_ev_natom'] = final_pred_f
+xgb['bandgap_energy_ev'] = valid_pred_g
+xgb.to_csv("D:/New folder/Kagg;e/TestPro/output/final.csv", index=False)
